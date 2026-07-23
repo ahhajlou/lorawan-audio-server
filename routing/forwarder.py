@@ -26,16 +26,16 @@ class Forwarder:
             return None
 
         receiver_eui = self.registry.lookup(packet.receiver)
-        # if not receiver_eui:
-        #     logger.debug(
-        #         "Receiver unknown, dropping packet. receiver={receiver}",
-        #         receiver=packet.receiver,
-        #     )
-        #     return None
+        if not receiver_eui:
+            logger.debug(
+                "Receiver unknown, dropping packet. receiver={receiver}",
+                receiver=packet.receiver,
+            )
+            return None
 
         ack_bytes = serializer.build_ack(packet)
 
-        # buf = self.buffers.get_or_create(receiver_eui)
-        # buf.enqueue(packet, f_port)
+        buf = self.buffers.get_or_create(receiver_eui)
+        buf.enqueue(packet, f_port)
 
         return PublishRequest(target_eui=sender_eui, payload=ack_bytes)
