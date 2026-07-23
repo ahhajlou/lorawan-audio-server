@@ -131,3 +131,9 @@ uv run python main.py
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full thread model, sequence diagrams,
 dependency rules, and design patterns.
+
+## Python formatter
+
+```bash
+uv run ruff format .
+```

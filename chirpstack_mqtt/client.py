@@ -14,6 +14,7 @@ from cffi import FFI
 # }
 NODES_ADDR_TO_DEVEUI_MAP = dict()
 
+
 @dataclass
 class ChirpStackInfo:
     ip: str
@@ -21,27 +22,28 @@ class ChirpStackInfo:
     username: str
     password: str
 
+
 def calculateAndWriteCrc8(data, payload_len: int):
     crc = 0x00
 
     # before calculating crc, we need to set this value, because it is
     # effective at CRC8 calcualtion
-    data.header.payload_and_crc_len = payload_len + 1; # minimum: 1
+    data.header.payload_and_crc_len = payload_len + 1  # minimum: 1
 
     crc ^= data.header.type
     crc ^= data.header.senderAddress.addh
     crc ^= data.header.senderAddress.addl
     crc ^= data.header.receiverAddress.addh
     crc ^= data.header.receiverAddress.addl
-    crc ^= data.header.seq & 0xFF         # low byte of seq
-    crc ^= (data.header.seq >> 8) & 0xFF # high byte of seq
+    crc ^= data.header.seq & 0xFF  # low byte of seq
+    crc ^= (data.header.seq >> 8) & 0xFF  # high byte of seq
     crc ^= data.header.payload_and_crc_len
 
     for i in range(payload_len):
         crc ^= data.payloadAndCrc[i]
 
     crc8Index = payload_len
-    data.payloadAndCrc[crc8Index] = crc; # last byte reserved for crc8
+    data.payloadAndCrc[crc8Index] = crc  # last byte reserved for crc8
 
     return data
 
@@ -54,11 +56,11 @@ def verifyCrc8(data) -> bool:
     crc ^= data.header.senderAddress.addl
     crc ^= data.header.receiverAddress.addh
     crc ^= data.header.receiverAddress.addl
-    crc ^= data.header.seq & 0xFF        # low byte of seq
-    crc ^= (data.header.seq >> 8) & 0xFF # high byte of seq
+    crc ^= data.header.seq & 0xFF  # low byte of seq
+    crc ^= (data.header.seq >> 8) & 0xFF  # high byte of seq
     crc ^= data.header.payload_and_crc_len
 
-    for i in range(data.header.payload_and_crc_len-1):
+    for i in range(data.header.payload_and_crc_len - 1):
         crc ^= data.payloadAndCrc[i]
 
     crc8Index = data.header.payload_and_crc_len - 1
@@ -68,10 +70,10 @@ def verifyCrc8(data) -> bool:
     else:
         return False
 
+
 class DataValididty(Exception):
     def __init__(self, *args):
         super().__init__(args)
-
 
 
 ESP32_LORA_STRUCT_CDEF = """
@@ -97,6 +99,7 @@ struct LoRaData {
 };
 """
 
+
 def parse_c_struct(data: bytes):
     ffi = FFI()
 
@@ -115,7 +118,9 @@ def parse_c_struct(data: bytes):
     print(f"{unpacked_data.header.payload_and_crc_len=}")
 
     if unpacked_data.header.payload_and_crc_len > len(unpacked_data.payloadAndCrc):
-        raise DataValididty("unpacked_data.header.payload_and_crc_len > len(unpacked_data.payloadAndCrc)")
+        raise DataValididty(
+            "unpacked_data.header.payload_and_crc_len > len(unpacked_data.payloadAndCrc)"
+        )
         # Or pass
     if unpacked_data.header.payload_and_crc_len <= 0:
         raise DataValididty("data.header.payload_and_crc_len <= 0")
@@ -135,7 +140,8 @@ def parse_c_struct(data: bytes):
 def garbage_parse_c_struct(data: bytes):
     ffi = FFI()
 
-    ffi.cdef("""
+    ffi.cdef(
+        """
     #define LORA_PAYLOAD_SIZE_PLUS_CRC 44
 
     struct LoRaData {
@@ -147,7 +153,9 @@ def garbage_parse_c_struct(data: bytes):
         } header;
         uint8_t payload[44];
     };
-    """, pack=1)
+    """,
+        pack=1,
+    )
 
     unpacked_data = ffi.from_buffer("struct LoRaData *", data)
     print()
@@ -159,7 +167,7 @@ def garbage_parse_c_struct(data: bytes):
     print(f"{unpacked_data.header.varD=}")
     print(f"{unpacked_data.payload=}")
     for i, payload in enumerate(unpacked_data.payload):
-        if i==4:
+        if i == 4:
             break
         print(hex(payload))
     print("============")
@@ -204,7 +212,7 @@ def prepare_ack_message(unpacked_data) -> bytes:
 
 
 def chirpstack_uplink_handler(client, payload):
-    j = json.loads(payload.decode('utf-8'))
+    j = json.loads(payload.decode("utf-8"))
     d = j["data"]
 
     try:
@@ -215,21 +223,19 @@ def chirpstack_uplink_handler(client, payload):
 
     sender_dev_eui = j["deviceInfo"]["devEui"]
     print(f"{unpacked_data.header.type=}\nNODES === {NODES_ADDR_TO_DEVEUI_MAP.items()}")
-    if not (
-        unpacked_data.header.senderAddress.addh, 
-        unpacked_data.header.senderAddress.addl
-    ) in NODES_ADDR_TO_DEVEUI_MAP:
-        NODES_ADDR_TO_DEVEUI_MAP [
-            (unpacked_data.header.senderAddress.addh, 
-            unpacked_data.header.senderAddress.addl)
+    if (
+        not (unpacked_data.header.senderAddress.addh, unpacked_data.header.senderAddress.addl)
+        in NODES_ADDR_TO_DEVEUI_MAP
+    ):
+        NODES_ADDR_TO_DEVEUI_MAP[
+            (unpacked_data.header.senderAddress.addh, unpacked_data.header.senderAddress.addl)
         ] = sender_dev_eui
 
-    receiver_dev_eui = NODES_ADDR_TO_DEVEUI_MAP.get((
-        unpacked_data.header.receiverAddress.addh,
-        unpacked_data.header.receiverAddress.addl
-    ))
+    receiver_dev_eui = NODES_ADDR_TO_DEVEUI_MAP.get(
+        (unpacked_data.header.receiverAddress.addh, unpacked_data.header.receiverAddress.addl)
+    )
 
-    if (unpacked_data.header.type == 0x7):
+    if unpacked_data.header.type == 0x7:
         print("Post join message, not continue")
         return
 
@@ -237,7 +243,9 @@ def chirpstack_uplink_handler(client, payload):
     receiver_dev_eui = "ac1f09fffe0020a0"
 
     if not receiver_dev_eui:
-        print("receiver_dev_eui does not exist in memory, probably it has not joined to the network")
+        print(
+            "receiver_dev_eui does not exist in memory, probably it has not joined to the network"
+        )
         return
 
     # app_id="9e416001-0bc0-4313-9baf-a1df7b7e38d7"
@@ -259,13 +267,17 @@ def chirpstack_uplink_handler(client, payload):
     ack_message_hex = prepare_ack_message(unpacked_data=unpacked_data)
     print(f"Ack hex {ack_message_hex}")
 
-    downlink_payload_ack = json.dumps({
-        "devEui": f"{sender_dev_eui}",
-        "confirmed": False,
-        "fPort": f_port,
-        "data": base64.b64encode(ack_message_hex).decode('utf-8')
-    })
-    client.publish(f"application/{app_id}/device/{sender_dev_eui}/command/down", downlink_payload_ack, qos=2)
+    downlink_payload_ack = json.dumps(
+        {
+            "devEui": f"{sender_dev_eui}",
+            "confirmed": False,
+            "fPort": f_port,
+            "data": base64.b64encode(ack_message_hex).decode("utf-8"),
+        }
+    )
+    client.publish(
+        f"application/{app_id}/device/{sender_dev_eui}/command/down", downlink_payload_ack, qos=2
+    )
     print(f"Ack message={downlink_payload_ack}")
 
 
@@ -274,7 +286,7 @@ def on_message(client, userdata, msg):
     # print(f"Received message on {msg.topic}: {msg.payload.decode('utf-8')}")
     print(f"Received message on {msg.topic}")
 
-    event_type = msg.topic.rsplit('/', 1)[1]
+    event_type = msg.topic.rsplit("/", 1)[1]
     if event_type == "up":
         chirpstack_uplink_handler(client, msg.payload)
     elif event_type == "join":
@@ -283,10 +295,10 @@ def on_message(client, userdata, msg):
         print("Other topics")
 
     return
-    j = json.loads(msg.payload.decode('utf-8'))
+    j = json.loads(msg.payload.decode("utf-8"))
     d = j["data"]
     # print(f"Data: {base64.b64decode(d).hex()}")
-    
+
     try:
         unpacked_data = parse_c_struct(data=base64.b64decode(d))
     except DataValididty as e:
@@ -295,13 +307,12 @@ def on_message(client, userdata, msg):
 
     sender_dev_eui = j["deviceInfo"]["devEui"]
     print(f"NODES === {NODES_ADDR_TO_DEVEUI_MAP.items()}")
-    if not (
-        unpacked_data.header.senderAddress.addh, 
-        unpacked_data.header.senderAddress.addl
-    ) in NODES_ADDR_TO_DEVEUI_MAP:
-        NODES_ADDR_TO_DEVEUI_MAP [
-            (unpacked_data.header.senderAddress.addh, 
-            unpacked_data.header.senderAddress.addl)
+    if (
+        not (unpacked_data.header.senderAddress.addh, unpacked_data.header.senderAddress.addl)
+        in NODES_ADDR_TO_DEVEUI_MAP
+    ):
+        NODES_ADDR_TO_DEVEUI_MAP[
+            (unpacked_data.header.senderAddress.addh, unpacked_data.header.senderAddress.addl)
         ] = sender_dev_eui
 
     # print(f"{type(client)=} {client=}")
@@ -310,20 +321,16 @@ def on_message(client, userdata, msg):
     # print(j)
     # print(f"{j["deviceInfo"]["devEui"]=}")
 
-
-
     # garbage_parse_c_struct(data=base64.b64decode(d))
 
-    receiver_dev_eui = NODES_ADDR_TO_DEVEUI_MAP.get((
-        unpacked_data.header.receiverAddress.addh,
-        unpacked_data.header.receiverAddress.addl
-    ))
+    receiver_dev_eui = NODES_ADDR_TO_DEVEUI_MAP.get(
+        (unpacked_data.header.receiverAddress.addh, unpacked_data.header.receiverAddress.addl)
+    )
     if not receiver_dev_eui:
-        print("receiver_dev_eui does not exist in memory, probably it has not joined to the network")
+        print(
+            "receiver_dev_eui does not exist in memory, probably it has not joined to the network"
+        )
         return
-
-
-
 
     # app_id="9e416001-0bc0-4313-9baf-a1df7b7e38d7"
     # dev_eui="ac1f09fffe000000"
@@ -346,9 +353,11 @@ def on_connect(client, userdata, flags, reason_code, properties):
     client.subscribe("application/+/device/+/event/up", qos=1)
     # client.subscribe("application/+/device/+/event/join", qos=1)
 
+
 def on_log(client, userdata, paho_log_level, messages):
     if paho_log_level == mqtt.LogLevel.MQTT_LOG_ERR:
         print(messages)
+
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="forwarder-app")
 client.on_connect = on_connect
@@ -374,33 +383,30 @@ counter = 0
 
 def send_periodic_downlink(app_id, dev_eui, interval_sec=2):
     topic = f"application/{app_id}/device/{dev_eui}/command/down"
-    
-    counter = 0 # Initialize the counter
+
+    counter = 0  # Initialize the counter
 
     while True:
         # print(f"Publishing to {topic}")
-        
+
         # 1. Convert counter to a string, then to bytes
-        data_bytes = str(counter).encode('utf-8')
-        
+        data_bytes = str(counter).encode("utf-8")
+
         # 2. Encode to Base64, then DECODE to a standard string to remove the b''
-        b64_string = base64.b64encode(data_bytes).decode('utf-8')
-        
+        b64_string = base64.b64encode(data_bytes).decode("utf-8")
+
         # 3. Build the payload
-        downlink_payload = json.dumps({
-            "devEui": dev_eui,
-            "confirmed": False,
-            "fPort": 2,
-            "data": b64_string
-        })
-        
+        downlink_payload = json.dumps(
+            {"devEui": dev_eui, "confirmed": False, "fPort": 2, "data": b64_string}
+        )
+
         # 4. Publish
         client.publish(topic, downlink_payload, qos=1)
         # now = time.strftime("%H:%M:%S.\%f", time.localtime())
-        now = datetime.datetime.now().strftime('%H:%M:%S.%f')
+        now = datetime.datetime.now().strftime("%H:%M:%S.%f")
         print(f"{now}: Published counter value: {counter} (Base64: {b64_string})")
-        
-        counter += 1 # Increment the counter
+
+        counter += 1  # Increment the counter
         time.sleep(interval_sec)
 
 
@@ -421,4 +427,4 @@ def main_loop(chrpstack_info: ChirpStackInfo):
     #     send_periodic_downlink(app_id, dev_eui, interval_sec=1)
     # except KeyboardInterrupt:
     #     client.loop_stop()
-    #     client.disconnect()    
+    #     client.disconnect()

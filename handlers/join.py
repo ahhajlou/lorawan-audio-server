@@ -1,3 +1,6 @@
+from routing.forwarder import Forwarder
+
+
 class JoinHandler:
     def __init__(self, parser, forwarder: Forwarder): ...
 
