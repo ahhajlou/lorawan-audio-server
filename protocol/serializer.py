@@ -1,3 +1,6 @@
+from models import Packet
+
+
 def build_ack(packet: Packet) -> bytes:
     """Pure function. Packet → raw bytes for ACK downlink."""
 

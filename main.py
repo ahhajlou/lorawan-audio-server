@@ -24,17 +24,18 @@ def main():
     buffers = BufferManager()
     forwarder = Forwarder(registry, buffers)
     uplink_handler = UplinkHandler(forwarder)
-    _join_handler = JoinHandler(forwarder)
+    join_handler = JoinHandler(forwarder)
     scheduler = FlushScheduler(buffers, mqtt_transport, settings.flush_interval_ms)
 
     mqtt_transport.set_uplink_handler(uplink_handler.handle)
+    mqtt_transport.set_join_handler(join_handler.handle)
 
     scheduler.start()
 
     try:
         mqtt_transport.start()
     except exceptions.ConnectionError:
-        logger.error("Exiting — MQTT broker unreachable")
+        logger.error("Exiting — MQTT connection error")
         sys.exit(1)
     except KeyboardInterrupt:
         logger.warning("Keyboard interrupt, exiting")
@@ -42,6 +43,9 @@ def main():
 
     try:
         mqtt_transport.loop_forever()
+    except exceptions.ConnectionError:
+        logger.error("Exiting — MQTT connection error")
+        sys.exit(1)
     except KeyboardInterrupt:
         logger.warning("Keyboard interrupt, exiting")
         mqtt_transport.stop()

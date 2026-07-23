@@ -8,6 +8,7 @@ dependencies = [
     "cffi>=2.1.0",
     "loguru>=0.7.3",
     "paho-mqtt>=2.1.0",
+    "pydantic~=2.13.4",
     "python-dotenv>=1.2.2",
 ]
 

@@ -11,7 +11,7 @@ class Settings:
     mqtt_username: str | None
     mqtt_password: str | None
     flush_interval_ms: int  # default 100
-    chirpstack_app_id: str
+    chirpstack_app_id: str | None
 
 
 def load_env_variables() -> Settings:

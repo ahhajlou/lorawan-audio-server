@@ -320,36 +320,193 @@ def main() -> None:
 
 ## Packet Flow
 
-### Uplink (Node A sends audio to Node B)
+### Uplink — Detailed Module Sequence (Node A sends audio to Node B)
+
+Every function call and module transition for a single incoming MQTT message:
 
 ```
-1. Node A transmits audio packet
-2. Gateway receives on one of 8 channels
-3. ChirpStack publishes MQTT message to application topic
-4. MqttTransport.on_message fires (paho thread)
-5. UplinkHandler.handle():
-   a. Parse JSON envelope
-   b. base64 decode → raw bytes
-   c. protocol.parse(raw_bytes) → Packet object
-   d. Registry: register sender address if new
-   e. Registry: resolve receiver DevEUI
-   f. Forwarder.on_packet_up():
-      - Publish ACK to sender (reduces airtime, no wait for Node B)
-      - Enqueue packet in Node B's StreamBuffer
-```
-
-### Downlink (Server forwards to Node B)
-
-```
-1. Flush thread wakes up (every FLUSH_INTERVAL ms)
-2. BufferManager.get_all_active() → list of receivers with pending packets
-3. For Node B: StreamBuffer.try_flush() → oldest Packet
-4. protocol.serializer.build_downlink(pkt) → raw bytes
-5. MqttTransport.publish_downlink("NodeB_eui", downlink_bytes)
-6. ChirpStack receives MQTT message
-7. ChirpStack queues downlink for Node B
-8. ChirpStack commands gateway to transmit on next available slot
-9. Node B receives audio packet (radio always open — Class C)
+ChirpStack MQTT Broker
+        │
+        │  MQTT publish to topic:
+        │  "application/{app_id}/device/{sender_eui}/event/up"
+        │
+        ▼
+═══════════════════════════════════════════════════════════════════
+  THREAD 1: MQTT (paho background)
+═══════════════════════════════════════════════════════════════════
+        │
+        │  paho internal: parse MQTT packet, match topic
+        │
+        ▼
+┌──────────────────────────────────────────────────────────────┐
+│  transport/mqtt_client.py                                    │
+│                                                              │
+│  MqttTransport.on_message(client, userdata, msg)             │
+│    │                                                         │
+│    │  event_type = msg.topic.rsplit('/', 1)[1]               │
+│    │  if event_type != "up": return                          │
+│    │                                                         │
+│    ▼                                                         │
+│  self.uplink_handler(msg.payload)                            │
+│    (callback registered via set_uplink_handler)              │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  handlers/uplink.py                                          │
+│                                                              │
+│  UplinkHandler.handle(raw_json: bytes)                       │
+│    │                                                         │
+│    │  1. json.loads(raw_json)                                │
+│    │     → extract: dev_eui, app_id, f_port, data (b64)     │
+│    │                                                         │
+│    │  2. base64.b64decode(data) → raw_bytes                  │
+│    │                                                         │
+│    ▼                                                         │
+│  protocol.parser.parse(raw_bytes)                            │
+│    │                                                         │
+│    │  ← returns Packet(msg_type, sender, receiver, seq,      │
+│    │                    payload, crc_valid)                   │
+│    │                                                         │
+│    │  3. if packet.msg_type == JOIN: return                  │
+│    │                                                         │
+│    │  4. self.registry.register(packet.sender, dev_eui)      │
+│    │                                                         │
+│    │  5. receiver_eui = self.registry.lookup(packet.receiver)│
+│    │     if receiver_eui is None: log warning, return        │
+│    │                                                         │
+│    ▼                                                         │
+│  self.forwarder.on_packet_up(packet, sender_eui,             │
+│                              receiver_eui, app_id, f_port)   │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  routing/forwarder.py                                        │
+│                                                              │
+│  Forwarder.on_packet_up(packet, sender_eui, receiver_eui,    │
+│                         app_id, f_port)                      │
+│    │                                                         │
+│    │  ── ACK to sender ──────────────────────────────────    │
+│    │                                                         │
+│    │  1. ack_bytes = serializer.build_ack(packet)            │
+│    │                                                         │
+│    │  2. ack_b64 = base64.b64encode(ack_bytes).decode()     │
+│    │                                                         │
+│    │  3. ack_payload = json.dumps({                          │
+│    │         "devEui": sender_eui,                            │
+│    │         "confirmed": False,                              │
+│    │         "fPort": f_port,                                 │
+│    │         "data": ack_b64                                  │
+│    │     })                                                  │
+│    │                                                         │
+│    │  4. self.mqtt_publish(                                  │
+│    │         f"application/{app_id}/device/{sender_eui}      │
+│    │          /command/down",                                │
+│    │         ack_payload)                                    │
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  ┌─────────────────────────────────────────┐            │
+│    │  │  MqttTransport.publish_downlink()       │            │
+│    │  │    client.publish(topic, payload)       │            │
+│    │  └─────────────────────────────────────────┘            │
+│    │                                                         │
+│    │  ── Enqueue for receiver ───────────────────────────    │
+│    │                                                         │
+│    │  5. stream_buf = self.buffers.get_or_create(receiver_eui│
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  ┌─────────────────────────────────────────┐            │
+│    │  │  routing/stream_buffer.py               │            │
+│    │  │  BufferManager.get_or_create(eui)       │            │
+│    │  │    lock_manager ► ACQUIRE               │            │
+│    │  │    if eui not in _buffers:              │            │
+│    │  │        _buffers[eui] = StreamBuffer()   │            │
+│    │  │    lock_manager ► RELEASE               │            │
+│    │  │    return _buffers[eui]                 │            │
+│    │  └─────────────────────────────────────────┘            │
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  stream_buf.enqueue(packet)                             │
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  ┌─────────────────────────────────────────┐            │
+│    │  │  routing/stream_buffer.py               │            │
+│    │  │  StreamBuffer.enqueue(packet)           │            │
+│    │  │    lock_buffer ► ACQUIRE                │            │
+│    │  │    _pending.append(packet)              │            │
+│    │  │    lock_buffer ► RELEASE                │            │
+│    │  └─────────────────────────────────────────┘            │
+│    │                                                         │
+│    │  ✓ Done — message fully processed                       │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           │  (back to paho thread — continues
+                           │   listening for next message)
+                           │
+═══════════════════════════════════════════════════════════════════
+  THREAD 2: FLUSH (periodic, runs independently)
+═══════════════════════════════════════════════════════════════════
+        │
+        │  (runs every FLUSH_INTERVAL ms)
+        │
+        ▼
+┌──────────────────────────────────────────────────────────────┐
+│  scheduler.py                                                │
+│                                                              │
+│  FlushScheduler._loop()                                      │
+│    │                                                         │
+│    │  while not self._stop_event.is_set():                   │
+│    │      self._stop_event.wait(self.flush_interval / 1000)  │
+│    │                                                         │
+│    │      active = self.buffers.get_all_active()             │
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  ┌─────────────────────────────────────────┐            │
+│    │  │  routing/stream_buffer.py               │            │
+│    │  │  BufferManager.get_all_active()         │            │
+│    │  │    lock_manager ► ACQUIRE               │            │
+│    │  │    return [(k,v) for k,v in _buffers    │            │
+│    │  │            if v.has_pending()]           │            │
+│    │  │    lock_manager ► RELEASE               │            │
+│    │  └─────────────────────────────────────────┘            │
+│    │                                                         │
+│    │      for receiver_eui, buf in active:                   │
+│    │                                                         │
+│    │        pkt = buf.try_flush()                            │
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  ┌─────────────────────────────────────────┐            │
+│    │  │  routing/stream_buffer.py               │            │
+│    │  │  StreamBuffer.try_flush()               │            │
+│    │  │    lock_buffer ► ACQUIRE                │            │
+│    │  │    if _pending:                         │            │
+│    │  │        return _pending.pop(0)           │            │
+│    │  │    lock_buffer ► RELEASE                │            │
+│    │  └─────────────────────────────────────────┘            │
+│    │       │                                                 │
+│    │       ▼  (if pkt is not None)                           │
+│    │                                                         │
+│    │  downlink_bytes = serializer.build_downlink(pkt)        │
+│    │                                                         │
+│    │  self.transport.publish_downlink(receiver_eui,          │
+│    │                                  downlink_bytes)         │
+│    │       │                                                 │
+│    │       ▼                                                 │
+│    │  ┌─────────────────────────────────────────┐            │
+│    │  │  MqttTransport.publish_downlink()       │            │
+│    │  │    endpoint = chirpstack_endpoint.get()  │            │
+│    │  │    client.publish(endpoint, payload)     │            │
+│    │  └─────────────────────────────────────────┘            │
+│    │                                                         │
+│    │  ✓ Downlink queued in paho → sent by MQTT thread       │
+└──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   ChirpStack MQTT Broker
+        │
+        ▼
+   ChirpStack → Gateway → Node B (radio)
 ```
 
 ### Multiple Simultaneous Conversations (A→B and C→D)

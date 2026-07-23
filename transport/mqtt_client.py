@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 import paho.mqtt.client as mqtt
 from loguru import logger
+from paho.mqtt.enums import MQTTErrorCode
 
 import exceptions
 from config import Settings
@@ -40,7 +41,12 @@ class MqttTransport:
 
     def start(self) -> None:
         try:
-            self.client.connect(self.settings.mqtt_broker_host, self.settings.mqtt_broker_port)
+            error: MQTTErrorCode = self.client.connect(
+                self.settings.mqtt_broker_host, self.settings.mqtt_broker_port
+            )
+            if error != MQTTErrorCode.MQTT_ERR_SUCCESS:
+                raise exceptions.ConnectionError(f"MQTT Connection Error. Error code: {error}")
+
         except OSError as e:
             if e.errno == 113:
                 logger.error(
@@ -56,9 +62,26 @@ class MqttTransport:
         self.client.disconnect()
 
     def loop_forever(self):
-        self.client.loop_forever()
+        try:
+            error: MQTTErrorCode = self.client.loop_forever()
+            if error != MQTTErrorCode.MQTT_ERR_SUCCESS:
+                logger.error(
+                    "MQTT Client loop exited unexpectedly. Error code: {error_code}",
+                    error_code=error,
+                )
+                raise exceptions.ConnectionError(f"MQTT Connection error. Error code: {error}")
+
+        except OSError as e:
+            logger.error(
+                "OSError, MQTT client stopped {host}:{port} — {error}",
+                host=self.settings.mqtt_broker_host,
+                port=self.settings.mqtt_broker_port,
+                error=e,
+            )
+            raise exceptions.ConnectionError(f"MQTT Connection error: {e}") from e
 
     def publish_downlink(self, dev_eui: str, payload: bytes, qos=1) -> None:
+        logger.info("Publishing a downlonk message to DevEUI: {dev_eui}", dev_eui=dev_eui)
         endpoint = self.chirpstack_mqtt_endpoint.get_device_downlink(
             self.settings.chirpstack_app_id, dev_eui
         )
@@ -92,4 +115,5 @@ class MqttTransport:
         logger.log(loguru_level, "MQTT: {message}", message=messages)
 
     def on_disconnect(self, client, userdata, flags, reason_code, properties):
-        self.client.disconnected.set_result(reason_code)
+        logger.info("Client has disconnected. reason_code: {reason_code}", reason_code=reason_code)
+        # self.client.disconnected.set_result(reason_code)
