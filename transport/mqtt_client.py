@@ -31,6 +31,9 @@ class MqttTransport:
         self.uplink_handler: Callable | None = None
         self.join_handler: Callable | None = None
 
+        if self.settings.chirpstack_app_id is None or self.settings.chirpstack_app_id == "":
+            raise ValueError("CHIRPSTACK_APP_ID is None or empty")
+
     def set_uplink_handler(self, handler: Callable) -> None:
         """Register the callback for uplink events."""
         self.uplink_handler = handler
@@ -83,7 +86,8 @@ class MqttTransport:
     def publish_downlink(self, dev_eui: str, payload: bytes, qos=1) -> None:
         logger.info("Publishing a downlonk message to DevEUI: {dev_eui}", dev_eui=dev_eui)
         endpoint = self.chirpstack_mqtt_endpoint.get_device_downlink(
-            self.settings.chirpstack_app_id, dev_eui
+            self.settings.chirpstack_app_id,
+            dev_eui,
         )
         self.client.publish(endpoint, payload, qos=qos)
 

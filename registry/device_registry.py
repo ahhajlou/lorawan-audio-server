@@ -9,6 +9,8 @@ class DeviceRegistry:
         self._lock: Lock = Lock()
 
     def register(self, addr: Address, dev_eui: str) -> None:
+        # TODO: Consier if the addr (Application level address) exists
+        # but dev_ui (LoRaWAN addressing) has changed
         with self._lock:
             if addr not in self._map:
                 self._map[addr] = dev_eui

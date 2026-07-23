@@ -1,54 +1,78 @@
-import struct
+from cffi import FFI
 
 import exceptions
 from protocol.crc import verify_crc8
 from protocol.models import Address, MsgType, Packet
 
-_HEADER_FMT = "<BBB BB H B"
-_HEADER_SIZE = struct.calcsize(_HEADER_FMT)
+ESP32_LORA_STRUCT_CDEF = """
+#define LORA_PAYLOAD_SIZE_PLUS_CRC 44
+
+typedef struct {
+    uint8_t  type; // lora_message_type_t
+    struct {
+        uint8_t addh;
+        uint8_t addl;
+    } senderAddress;
+    struct {
+        uint8_t addh;
+        uint8_t addl;
+    } receiverAddress;             
+    uint16_t seq;
+    uint8_t  payload_and_crc_len;
+} Header;
+
+struct LoRaData {
+    Header header;
+    uint8_t  payloadAndCrc [LORA_PAYLOAD_SIZE_PLUS_CRC];
+};
+"""
 
 
 def parse(decoded_payload: bytes) -> Packet:
-    if len(decoded_payload) < _HEADER_SIZE:
+    ffi = FFI()
+    ffi.cdef(ESP32_LORA_STRUCT_CDEF, pack=1)
+
+    header_size = ffi.sizeof("Header")
+    if len(decoded_payload) < header_size:
         raise exceptions.ProtocolError(
-            f"Payload too short: {len(decoded_payload)} bytes < {_HEADER_SIZE} header"
+            f"Payload too short: {len(decoded_payload)} bytes < {header_size} header"
         )
 
-    (
-        msg_type_val,
-        sender_addh,
-        sender_addl,
-        receiver_addh,
-        receiver_addl,
-        seq,
-        payload_and_crc_len,
-    ) = struct.unpack(_HEADER_FMT, decoded_payload[:_HEADER_SIZE])
+    unpacked_data = ffi.from_buffer("struct LoRaData *", decoded_payload)
 
     try:
-        msg_type = MsgType(msg_type_val)
+        msg_type = MsgType(unpacked_data.header.type)
     except ValueError as err:
-        raise exceptions.ProtocolError(f"Unknown message type: 0x{msg_type_val:02x}") from err
+        raise exceptions.ProtocolError(
+            f"Unknown message type: 0x{unpacked_data.header.type:02x}"
+        ) from err
 
-    if payload_and_crc_len <= 0:
-        raise exceptions.ProtocolError("payload_and_crc_len <= 0")
+    if unpacked_data.header.payload_and_crc_len <= 0:
+        raise exceptions.ProtocolError("header.payload_and_crc_len <= 0")
 
-    payload_end = _HEADER_SIZE + payload_and_crc_len
+    payload_end = header_size + unpacked_data.header.payload_and_crc_len
     if payload_end > len(decoded_payload):
         raise exceptions.ProtocolError(
             f"Payload too short for declared length: need {payload_end}, got {len(decoded_payload)}"
         )
 
-    payload_and_crc = decoded_payload[_HEADER_SIZE:payload_end]
-    header_bytes = decoded_payload[:_HEADER_SIZE]
+    header_bytes = decoded_payload[:header_size]
+    payload_and_crc = decoded_payload[header_size:payload_end]
     crc_valid = verify_crc8(header_bytes, payload_and_crc)
 
-    payload = payload_and_crc[:-1] if payload_and_crc_len > 0 else b""
+    payload = payload_and_crc[:-1] if unpacked_data.header.payload_and_crc_len > 0 else b""
 
     return Packet(
         msg_type=msg_type,
-        sender=Address(addh=sender_addh, addl=sender_addl),
-        receiver=Address(addh=receiver_addh, addl=receiver_addl),
-        seq=seq,
+        sender=Address(
+            addh=unpacked_data.header.senderAddress.addh,
+            addl=unpacked_data.header.senderAddress.addl,
+        ),
+        receiver=Address(
+            addh=unpacked_data.header.receiverAddress.addh,
+            addl=unpacked_data.header.receiverAddress.addh,
+        ),
+        seq=unpacked_data.header.seq,
         payload=payload,
         crc_valid=crc_valid,
     )
