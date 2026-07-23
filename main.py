@@ -12,7 +12,6 @@ from transport.mqtt_client import MqttTransport
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")
-# logger.add("logs/server.log", rotation="10 MB", retention="7 days", level="DEBUG")
 
 
 def main():
@@ -23,7 +22,7 @@ def main():
     registry = DeviceRegistry()
     buffers = BufferManager()
     forwarder = Forwarder(registry, buffers)
-    uplink_handler = UplinkHandler(forwarder)
+    uplink_handler = UplinkHandler(forwarder, mqtt_transport.publish_downlink)
     join_handler = JoinHandler(forwarder)
     scheduler = FlushScheduler(buffers, mqtt_transport, settings.flush_interval_ms)
 
@@ -49,6 +48,7 @@ def main():
     except KeyboardInterrupt:
         logger.warning("Keyboard interrupt, exiting")
         mqtt_transport.stop()
+        scheduler.stop()
         sys.exit(2)
 
 

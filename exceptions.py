@@ -15,7 +15,6 @@ class DeviceUnknown(AppError):
 
 
 class ParseError(AppError):
-    # Raised when parsing input data fails.
     def __init__(self, message, *, name: str | None = None):
         super().__init__(message)
         self.name = name

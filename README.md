@@ -20,9 +20,9 @@ them on behalf of the receiver, buffers, and forwards to the listening node(s).
 │ (sender) │     │  WM1302  │     │  (MQTT)    │     │   Server   │
 └──────────┘     └──────────┘     └────────────┘     └────────────┘
                                         ▲                     │
-┌──────────┐     ┌──────────┐          │                     │
+┌──────────┐     ┌──────────┐          │          ACK (immediate)
 │  Node B  │◄────│  Gateway │◄─────────┘                     │
-│(receiver)│     │  WM1302  │◄────────────────────────────────┘
+│(receiver)│     │  WM1302  │◄────────── data (deferred) ────┘
 └──────────┘     └──────────┘
 ```
 
@@ -39,38 +39,47 @@ them on behalf of the receiver, buffers, and forwards to the listening node(s).
 3. **This server** receives the MQTT message, parses the LoRa packet, and:
    - Sends an ACK back to Node A immediately (on behalf of Node B, to reduce airtime)
    - Buffers the packet for Node B
-4. **Flush thread** periodically drains the buffer and publishes downlinks to ChirpStack
+4. **Flush thread** periodically drains the buffer and publishes data downlinks to ChirpStack
 5. **ChirpStack** schedules and transmits the downlink to Node B via the gateway
 6. **Node B** receives the audio packet (radio always open in Class C)
+
+Two separate downlinks per uplink:
+- **ACK → sender** (immediate, same handler call)
+- **Data → receiver** (deferred, via flush thread from buffer)
 
 ## Project Structure
 
 ```
 lorawan-audio-server/
-├── main.py                 Entry point, wiring, startup
-├── config.py               Settings from .env
+├── main.py                     Entry point, wiring, startup
+├── config.py                   Settings from .env
+├── exceptions.py               Custom exception hierarchy
 │
-├── transport/              MQTT layer (wraps paho-mqtt)
-│   └── mqtt_client.py
+├── transport/                  MQTT layer (wraps paho-mqtt)
+│   ├── mqtt_client.py
+│   ├── chirpstack_endpoints.py Topic construction
+│   └── chirpstack_event_types/ Pydantic models for ChirpStack JSON
+│       └── uplink.py
 │
-├── protocol/               Packet format — pure functions, zero deps
-│   ├── models.py           Packet, Address, MsgType
-│   ├── parser.py           bytes → Packet
-│   ├── serializer.py       Packet → bytes, build_ack, build_downlink
-│   └── crc.py              CRC8 calculation and verification
+├── protocol/                   Packet format — pure functions, zero deps
+│   ├── models.py               Packet, Address, MsgType
+│   ├── parser.py               bytes → Packet
+│   ├── serializer.py           Packet → bytes, build_ack, build_downlink
+│   └── crc.py                  CRC8 calculation and verification
 │
-├── registry/               Device state
-│   └── device_registry.py  Address ↔ DevEUI mapping
+├── registry/                   Device state
+│   └── device_registry.py      Address → DevEUI mapping
 │
-├── routing/                Forwarding logic
-│   ├── forwarder.py        Routing decisions (ACK, forward, drop)
-│   └── stream_buffer.py    Thread-safe per-receiver packet buffers
+├── routing/                    Forwarding logic
+│   ├── models.py               PublishRequest (return type from forwarder)
+│   ├── forwarder.py            Routing decisions (register, lookup, ACK, enqueue)
+│   └── stream_buffer.py        Thread-safe per-receiver packet buffers
 │
-├── handlers/               Event handlers
-│   ├── uplink.py           Uplink message handler
-│   └── join.py             Join event handler
+├── handlers/                   Event handlers (bridge between transport and routing)
+│   ├── uplink.py               Uplink message handler
+│   └── join.py                 Join event handler
 │
-└── scheduler.py            Flush thread (periodic buffer drain)
+└── scheduler.py                Flush thread (periodic buffer drain)
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
@@ -128,6 +137,8 @@ uv run python main.py
 - **Thread safety**: `threading.Lock` per buffer + one lock for the buffer dict
 - **Pure protocol layer**: parser, serializer, CRC are stateless functions
 - **Dependency injection**: `main.py` wires all components, no hidden globals
+- **Two downlink paths**: ACK (immediate via handler) + data (deferred via flush thread)
+- **Clean dependency rule**: routing never imports transport; handler is the bridge
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full thread model, sequence diagrams,
 dependency rules, and design patterns.

@@ -1,13 +1,10 @@
-import base64
-import json
-
 from loguru import logger
 
 from protocol import serializer
 from protocol.models import MsgType, Packet
 from registry import DeviceRegistry
-from routing import BufferManager
-from transport.chirpstack_even_types.uplink import UplinkEvent
+from routing.stream_buffer import BufferManager
+from routing.model import PublishRequest
 
 
 class Forwarder:
@@ -15,29 +12,30 @@ class Forwarder:
         self.registry = registry
         self.buffers = buffers
 
-    def on_packet_up(self, packet: Packet, event_data: UplinkEvent) -> None:
-        """Decide what to do: ACK sender, enqueue for receiver, drop.
-        Also register device in DeviceRegistry"""
+    def on_packet_up(
+        self, packet: Packet, sender_eui: str, f_port: int
+    ) -> PublishRequest | None:
+        self.registry.register(packet.sender, sender_eui)
 
         if packet.msg_type == MsgType.JOIN:
             logger.info(
-                "New device has been registerred. DevEUI={dev_eui}, TX Address={tx_address}",
-                dev_eui=event_data.device_info.dev_eui,
+                "New device registered. DevEUI={dev_eui}, TX Address={tx_address}",
+                dev_eui=sender_eui,
                 tx_address=packet.sender,
             )
-            self.registry.register(packet.sender, event_data.device_info.dev_eui)
-            return
+            return None
+
+        receiver_eui = self.registry.lookup(packet.receiver)
+        if not receiver_eui:
+            logger.debug(
+                "Receiver unknown, dropping packet. receiver={receiver}",
+                receiver=packet.receiver,
+            )
+            return None
 
         ack_bytes = serializer.build_ack(packet)
-        ack_b64 = base64.b64encode(ack_bytes).decode("utf-8")
 
-        ack_payload = json.dumps(
-            {
-                "devEui": event_data.device_info.dev_eui,
-                "confirmed": False,
-                "fPort": event_data.f_port,
-                "data": ack_b64,
-            }
-        )
+        buf = self.buffers.get_or_create(receiver_eui)
+        buf.enqueue(packet, f_port)
 
-        logger.debug(ack_payload)
+        return PublishRequest(target_eui=sender_eui, payload=ack_bytes)
