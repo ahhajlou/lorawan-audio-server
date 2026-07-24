@@ -82,7 +82,7 @@ class MqttTransport:
             raise exceptions.ConnectionError(f"MQTT Connection error: {e}") from e
 
     def publish_downlink(self, dev_eui: str, payload: bytes, qos=1) -> None:
-        logger.info("Publishing a downlonk message to DevEUI: {dev_eui}", dev_eui=dev_eui)
+        logger.info("Publishing a downlink message to DevEUI: {dev_eui}", dev_eui=dev_eui)
         endpoint = self.chirpstack_mqtt_endpoint.get_device_downlink(
             self.settings.chirpstack_app_id,
             dev_eui,
