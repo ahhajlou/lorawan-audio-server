@@ -70,7 +70,7 @@ def parse(decoded_payload: bytes) -> Packet:
         ),
         receiver=Address(
             addh=unpacked_data.header.receiverAddress.addh,
-            addl=unpacked_data.header.receiverAddress.addh,
+            addl=unpacked_data.header.receiverAddress.addl,
         ),
         seq=unpacked_data.header.seq,
         payload=payload,
