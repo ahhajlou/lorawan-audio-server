@@ -51,15 +51,13 @@ class MqttTransport:
                 raise exceptions.ConnectionError(f"MQTT Connection Error. Error code: {error}")
 
         except OSError as e:
-            if e.errno == 113:
-                logger.error(
-                    "Cannot reach MQTT broker at {host}:{port} — {error}",
-                    host=self.settings.mqtt_broker_host,
-                    port=self.settings.mqtt_broker_port,
-                    error=e,
-                )
-                raise exceptions.ConnectionError(f"Broker unreachable: {e}") from e
-            raise  # Other exceptions not handled yet
+            logger.error(
+                "Cannot reach MQTT broker at {host}:{port} — {error}",
+                host=self.settings.mqtt_broker_host,
+                port=self.settings.mqtt_broker_port,
+                error=e,
+            )
+            raise exceptions.ConnectionError(f"Broker unreachable: {e}") from e
 
     def stop(self):
         self.client.disconnect()
