@@ -148,3 +148,17 @@ dependency rules, and design patterns.
 ```bash
 uv run ruff format .
 ```
+
+## Run tests
+
+All tests
+
+```bash
+uv run pytest
+```
+
+Specific Files
+
+```bash
+uv run pytest tests/test_protocol/test_crc.py -v
+```

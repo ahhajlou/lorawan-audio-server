@@ -14,3 +14,6 @@ wheels/
 
 # Ruff
 .ruff_cache/
+
+# pyTes
+.pytest_cache/

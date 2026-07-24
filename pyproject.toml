@@ -24,7 +24,12 @@ indent-style = "space"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
     "ruff>=0.6.9",
 ]
