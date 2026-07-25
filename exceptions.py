@@ -2,7 +2,7 @@ class AppError(Exception):
     """Base for all application errors."""
 
 
-class ConnectionError(AppError):
+class MQTTConnectionError(AppError):
     """MQTT broker unreachable or auth failed."""
 
 

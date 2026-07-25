@@ -35,7 +35,7 @@ def main():
 
     try:
         mqtt_transport.start()
-    except exceptions.ConnectionError:
+    except exceptions.MQTTConnectionError:
         logger.error("Exiting — MQTT connection error")
         sys.exit(1)
     except KeyboardInterrupt:
@@ -44,7 +44,7 @@ def main():
 
     try:
         mqtt_transport.loop_forever()
-    except exceptions.ConnectionError:
+    except exceptions.MQTTConnectionError:
         logger.error("Exiting — MQTT connection error")
         sys.exit(1)
     except KeyboardInterrupt:

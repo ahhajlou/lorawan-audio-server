@@ -66,7 +66,7 @@ class MqttTransport:
                     "MQTT Client loop exited unexpectedly. Error code: {error_code}",
                     error_code=error,
                 )
-                raise exceptions.ConnectionError(f"MQTT Connection error. Error code: {error}")
+                raise exceptions.MQTTConnectionError(f"MQTT Connection error. Error code: {error}")
 
         except OSError as e:
             logger.error(
@@ -75,7 +75,7 @@ class MqttTransport:
                 port=self.settings.mqtt_broker_port,
                 error=e,
             )
-            raise exceptions.ConnectionError(f"MQTT Connection error: {e}") from e
+            raise exceptions.MQTTConnectionError(f"MQTT Connection error: {e}") from e
 
     def publish_downlink(self, dev_eui: str, payload: PayloadType, qos=1) -> None:
         logger.info("Publishing a downlink message to DevEUI: {dev_eui}", dev_eui=dev_eui)

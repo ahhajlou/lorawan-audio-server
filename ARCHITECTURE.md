@@ -382,7 +382,7 @@ class MqttTransport:
         """Register the callback for join events."""
 
     def start(self) -> None:
-        """Connect to broker. Raises ConnectionError on failure."""
+        """Connect to broker. Raises MQTTConnectionError on failure."""
 
     def stop(self) -> None:
         """Disconnect gracefully."""
@@ -437,7 +437,7 @@ def main() -> None:
     transport.set_join_handler(join.handle)
 
     scheduler.start()
-    transport.start()           # raises ConnectionError on failure
+    transport.start()           # raises MQTTConnectionError on failure
     transport.loop_forever()    # blocks
 ```
 
