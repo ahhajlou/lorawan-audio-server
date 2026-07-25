@@ -9,6 +9,7 @@ from paho.mqtt.enums import MQTTErrorCode
 import exceptions
 from config import Settings
 from transport.chirpstack_endpoints import ChirpStackMqttEndpoint
+from transport.helper import catch_mqtt_connection_error, with_retry
 
 _PAHO_TO_LOGURU = {
     mqtt.LogLevel.MQTT_LOG_DEBUG: "DEBUG",
@@ -49,22 +50,10 @@ class MqttTransport:
         """Register the callback for join events."""
         self.join_handler = handler
 
-    def start(self) -> None:
-        try:
-            error: MQTTErrorCode = self.client.connect(
-                self.settings.mqtt_broker_host, self.settings.mqtt_broker_port
-            )
-            if error != MQTTErrorCode.MQTT_ERR_SUCCESS:
-                raise exceptions.ConnectionError(f"MQTT Connection Error. Error code: {error}")
-
-        except OSError as e:
-            logger.error(
-                "Cannot reach MQTT broker at {host}:{port} — {error}",
-                host=self.settings.mqtt_broker_host,
-                port=self.settings.mqtt_broker_port,
-                error=e,
-            )
-            raise exceptions.ConnectionError(f"Broker unreachable: {e}") from e
+    @with_retry(max_retries=3, delay=1)
+    @catch_mqtt_connection_error
+    def start(self) -> MQTTErrorCode:
+        return self.client.connect(self.settings.mqtt_broker_host, self.settings.mqtt_broker_port)
 
     def stop(self):
         self.client.disconnect()
