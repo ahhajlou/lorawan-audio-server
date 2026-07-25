@@ -17,3 +17,6 @@ wheels/
 
 # pyTes
 .pytest_cache/
+
+# sqlite database
+*.sql
