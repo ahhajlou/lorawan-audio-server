@@ -11,12 +11,14 @@ from scheduler import FlushScheduler
 from transport.mqtt_client import MqttTransport
 
 logger.remove()
-logger.add(sys.stderr, level="INFO")
 
 
 def main():
-    logger.info("Hello from lorawan-audio-server!")
     settings = load_env_variables()
+
+    logger.add(sys.stderr, level=settings.log_level)
+    logger.info("Hello from lorawan-audio-server!")
+
     mqtt_transport = MqttTransport(settings=settings)
 
     registry = DeviceRegistry()

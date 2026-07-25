@@ -13,6 +13,7 @@ class TestMqttTransport:
             mqtt_password="",
             flush_interval_ms=0,
             chirpstack_app_id=None,
+            log_level="INFO",
         )
         with pytest.raises(ValueError, match="CHIRPSTACK_APP_ID is None or empty"):
             _ = MqttTransport(settings)

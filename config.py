@@ -3,6 +3,9 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+DEFAULT_LOG_LEVEL = "INFO"
+VALID_LOG_LEVELS = {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}
+
 
 @dataclass
 class Settings:
@@ -12,10 +15,15 @@ class Settings:
     mqtt_password: str | None
     flush_interval_ms: int  # default 100
     chirpstack_app_id: str | None
+    log_level: str
 
 
 def load_env_variables() -> Settings:
     load_dotenv()  # reads .env and populates os.environ
+
+    log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
+    if log_level not in VALID_LOG_LEVELS:
+        raise ValueError(f"Invalid LOG_LEVEL '{log_level}'. Must be one of: {VALID_LOG_LEVELS}")
 
     settings = Settings(
         mqtt_broker_host=os.getenv("MQTT_BROKER_HOST", "localhost"),
@@ -24,6 +32,7 @@ def load_env_variables() -> Settings:
         mqtt_password=os.getenv("MQTT_PASSWORD") or None,
         flush_interval_ms=int(os.getenv("FLUSH_INTERVAL_MS", "100")),
         chirpstack_app_id=os.getenv("CHIRPSTACK_APP_ID") or None,
+        log_level=log_level,
     )
 
     return settings
