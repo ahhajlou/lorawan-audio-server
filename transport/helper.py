@@ -1,29 +1,9 @@
 import functools
-import time
 
 from loguru import logger
 from paho.mqtt.enums import MQTTErrorCode
 
 import exceptions
-
-
-def with_retry(max_retries=3, delay=1.0):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions.MQTTConnectionError:
-                    if attempt == max_retries - 1:
-                        logger.error("Giving up after {n} attempts", n=max_retries)
-                        raise
-                    logger.warning("Retry {attempt}/{max}...", attempt=attempt + 1, max=max_retries)
-                    time.sleep(delay)
-
-        return wrapper
-
-    return decorator
 
 
 def catch_mqtt_connection_error(func):

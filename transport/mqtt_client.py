@@ -5,11 +5,18 @@ import paho.mqtt.client as mqtt
 from loguru import logger
 from paho.mqtt.client import PayloadType
 from paho.mqtt.enums import MQTTErrorCode
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
 import exceptions
 from config import Settings
 from transport.chirpstack_endpoints import ChirpStackMqttEndpoint
-from transport.helper import catch_mqtt_connection_error, with_retry
+from transport.helper import catch_mqtt_connection_error
 
 _PAHO_TO_LOGURU = {
     mqtt.LogLevel.MQTT_LOG_DEBUG: "DEBUG",
@@ -50,7 +57,13 @@ class MqttTransport:
         """Register the callback for join events."""
         self.join_handler = handler
 
-    @with_retry(max_retries=3, delay=1)
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(1),
+        retry=retry_if_exception_type(exceptions.MQTTConnectionError),
+        before_sleep=before_sleep_log(logger, "WARNING"),
+        reraise=True,
+    )
     @catch_mqtt_connection_error
     def start(self) -> MQTTErrorCode:
         return self.client.connect(self.settings.mqtt_broker_host, self.settings.mqtt_broker_port)
