@@ -31,8 +31,6 @@ def main():
     mqtt_transport.set_uplink_handler(uplink_handler.handle)
     mqtt_transport.set_join_handler(join_handler.handle)
 
-    scheduler.start()
-
     try:
         mqtt_transport.start()
     except exceptions.MQTTConnectionError:
@@ -42,6 +40,8 @@ def main():
         logger.warning("Keyboard interrupt, exiting")
         sys.exit(2)
 
+    scheduler.start()
+
     try:
         mqtt_transport.loop_forever()
     except exceptions.MQTTConnectionError:
@@ -49,11 +49,11 @@ def main():
         sys.exit(1)
     except KeyboardInterrupt:
         logger.warning("Keyboard interrupt, exiting")
+        scheduler.stop()
         try:
             mqtt_transport.stop()
         except exceptions.MQTTConnectionError:
             logger.error("Exiting — MQTT connection error")
-        scheduler.stop()
         sys.exit(2)
 
 
