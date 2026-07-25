@@ -1,44 +1,11 @@
-from cffi import FFI
-
 import exceptions
+from protocol.c_lora_packet import get_ffi
 from protocol.crc import verify_crc8
 from protocol.models import Address, MsgType, Packet
 
-"""
-Chirpstack error
-level:"ERROR"
-code:"DOWNLINK_PAYLOAD_SIZE"
-description:"Device queue-item discarded because it exceeds the max. payload size"
-max_payload_size:"51"
-item_size:"52"
-"""
-ESP32_LORA_STRUCT_CDEF = """
-#define LORA_PAYLOAD_SIZE_PLUS_CRC 43
-
-typedef struct {
-    uint8_t  type; // lora_message_type_t
-    struct {
-        uint8_t addh;
-        uint8_t addl;
-    } senderAddress;
-    struct {
-        uint8_t addh;
-        uint8_t addl;
-    } receiverAddress;             
-    uint16_t seq;
-    uint8_t  payload_and_crc_len;
-} Header;
-
-struct LoRaData {
-    Header header;
-    uint8_t  payloadAndCrc [LORA_PAYLOAD_SIZE_PLUS_CRC];
-};
-"""
-
 
 def parse(decoded_payload: bytes) -> Packet:
-    ffi = FFI()
-    ffi.cdef(ESP32_LORA_STRUCT_CDEF, pack=1)
+    ffi = get_ffi()
 
     header_size = ffi.sizeof("Header")
     if len(decoded_payload) < header_size:
