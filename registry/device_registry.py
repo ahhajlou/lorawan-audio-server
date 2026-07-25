@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 
 from sqlalchemy import String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -19,7 +20,10 @@ class DeviceRow(Base):
 
 
 class DeviceRegistry:
-    def __init__(self, db_url: str = "sqlite:///database.sql"):
+    def __init__(self, db_url: str = "sqlite:///data/database.sql"):
+        db_path = db_url.replace("sqlite:///", "")
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
         self._engine = create_engine(db_url)
         Base.metadata.create_all(self._engine)
         self._session_factory = sessionmaker(bind=self._engine)
