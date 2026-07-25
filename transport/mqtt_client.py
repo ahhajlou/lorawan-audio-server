@@ -90,6 +90,11 @@ class MqttTransport:
 
     def publish_downlink(self, dev_eui: str, payload: PayloadType, qos=1) -> None:
         logger.info("Publishing a downlink message to DevEUI: {dev_eui}", dev_eui=dev_eui)
+        logger.debug(
+            "Payload type: {payload_type}. Payload: {payload}",
+            payload_type=type(payload),
+            payload=payload,
+        )
         endpoint = self.chirpstack_mqtt_endpoint.get_device_downlink(
             self.settings.chirpstack_app_id,
             dev_eui,
@@ -104,7 +109,11 @@ class MqttTransport:
         self.client.subscribe(self.chirpstack_mqtt_endpoint.get_event_join(), qos=1)
 
     def on_message(self, client, userdata, msg):
-        logger.debug("Incoming message: {message}", message=msg)
+        logger.debug(
+            "Incoming message.  Topic: {message_topic}, Payload: {payload}",
+            message_topic=msg.topic,
+            payload=msg.payload,
+        )
 
         event_type = msg.topic.rsplit("/", 1)[1]
         if event_type == "up":
