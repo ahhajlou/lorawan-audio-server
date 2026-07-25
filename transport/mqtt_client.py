@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 import paho.mqtt.client as mqtt
 from loguru import logger
+from paho.mqtt.client import PayloadType
 from paho.mqtt.enums import MQTTErrorCode
 
 import exceptions
@@ -81,7 +82,7 @@ class MqttTransport:
             )
             raise exceptions.ConnectionError(f"MQTT Connection error: {e}") from e
 
-    def publish_downlink(self, dev_eui: str, payload: bytes, qos=1) -> None:
+    def publish_downlink(self, dev_eui: str, payload: PayloadType, qos=1) -> None:
         logger.info("Publishing a downlink message to DevEUI: {dev_eui}", dev_eui=dev_eui)
         endpoint = self.chirpstack_mqtt_endpoint.get_device_downlink(
             self.settings.chirpstack_app_id,
