@@ -49,7 +49,10 @@ def main():
         sys.exit(1)
     except KeyboardInterrupt:
         logger.warning("Keyboard interrupt, exiting")
-        mqtt_transport.stop()
+        try:
+            mqtt_transport.stop()
+        except exceptions.MQTTConnectionError:
+            logger.error("Exiting — MQTT connection error")
         scheduler.stop()
         sys.exit(2)
 

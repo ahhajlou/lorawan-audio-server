@@ -1,4 +1,6 @@
 import functools
+from collections.abc import Callable
+from typing import Any
 
 from loguru import logger
 from paho.mqtt.enums import MQTTErrorCode
@@ -6,11 +8,11 @@ from paho.mqtt.enums import MQTTErrorCode
 import exceptions
 
 
-def catch_mqtt_connection_error(func):
+def catch_mqtt_connection_error(func: Callable[[Any], MQTTErrorCode]):
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> MQTTErrorCode:
         try:
-            error = func(*args, **kwargs)
+            error: MQTTErrorCode = func(*args, **kwargs)
             if error != MQTTErrorCode.MQTT_ERR_SUCCESS:
                 raise exceptions.MQTTConnectionError(f"MQTT Connection Error. Error code: {error}")
             return error

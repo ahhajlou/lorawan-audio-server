@@ -68,27 +68,13 @@ class MqttTransport:
     def start(self) -> MQTTErrorCode:
         return self.client.connect(self.settings.mqtt_broker_host, self.settings.mqtt_broker_port)
 
-    def stop(self):
-        self.client.disconnect()
+    @catch_mqtt_connection_error
+    def stop(self) -> MQTTErrorCode:
+        return self.client.disconnect()
 
-    def loop_forever(self):
-        try:
-            error: MQTTErrorCode = self.client.loop_forever()
-            if error != MQTTErrorCode.MQTT_ERR_SUCCESS:
-                logger.error(
-                    "MQTT Client loop exited unexpectedly. Error code: {error_code}",
-                    error_code=error,
-                )
-                raise exceptions.MQTTConnectionError(f"MQTT Connection error. Error code: {error}")
-
-        except OSError as e:
-            logger.error(
-                "OSError, MQTT client stopped {host}:{port} — {error}",
-                host=self.settings.mqtt_broker_host,
-                port=self.settings.mqtt_broker_port,
-                error=e,
-            )
-            raise exceptions.MQTTConnectionError(f"MQTT Connection error: {e}") from e
+    @catch_mqtt_connection_error
+    def loop_forever(self) -> MQTTErrorCode:
+        return self.client.loop_forever()
 
     def publish_downlink(self, dev_eui: str, payload: PayloadType, qos=1) -> None:
         logger.info("Publishing a downlink message to DevEUI: {dev_eui}", dev_eui=dev_eui)
@@ -120,7 +106,6 @@ class MqttTransport:
         event_type = msg.topic.rsplit("/", 1)[1]
         if event_type == "up":
             logger.info("New uplink event")
-            # chirpstack_uplink_handler(client, msg.payload)
             if self.uplink_handler:
                 self.uplink_handler(msg.payload)
         elif event_type == "join":
