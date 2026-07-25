@@ -11,7 +11,7 @@ class TestMqttTransport:
             mqtt_broker_port=0,
             mqtt_username="",
             mqtt_password="",
-            flush_interval_ms=0,
+            txack_timeout_s=5.0,
             chirpstack_app_id=None,
             log_level="INFO",
         )

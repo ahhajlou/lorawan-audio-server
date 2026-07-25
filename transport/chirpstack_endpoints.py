@@ -10,3 +10,6 @@ class ChirpStackMqttEndpoint:
 
     def get_event_join(self) -> str:
         return "application/+/device/+/event/join"
+
+    def get_event_txack(self) -> str:
+        return "application/+/device/+/event/txack"

@@ -21,14 +21,13 @@ from transport.helper import catch_mqtt_connection_error
 _PAHO_TO_LOGURU = {
     mqtt.LogLevel.MQTT_LOG_DEBUG: "DEBUG",
     mqtt.LogLevel.MQTT_LOG_INFO: "INFO",
-    mqtt.LogLevel.MQTT_LOG_NOTICE: "INFO",  # loguru has no NOTICE
+    mqtt.LogLevel.MQTT_LOG_NOTICE: "INFO",
     mqtt.LogLevel.MQTT_LOG_WARNING: "WARNING",
     mqtt.LogLevel.MQTT_LOG_ERR: "ERROR",
 }
 
 
 class PublishDownlinkType(Protocol):
-    # self, dev_eui: str, payload: PayloadType, qos=1
     def __call__(self, dev_eui: str, payload: PayloadType, qos: int = 1) -> None: ...
 
 
@@ -45,17 +44,19 @@ class MqttTransport:
 
         self.uplink_handler: Callable[[bytes], None] | None = None
         self.join_handler: Callable[[bytes], None] | None = None
+        self.txack_handler: Callable[[bytes], None] | None = None
 
         if self.settings.chirpstack_app_id is None or self.settings.chirpstack_app_id == "":
             raise ValueError("CHIRPSTACK_APP_ID is None or empty")
 
     def set_uplink_handler(self, handler: Callable) -> None:
-        """Register the callback for uplink events."""
         self.uplink_handler = handler
 
     def set_join_handler(self, handler: Callable) -> None:
-        """Register the callback for join events."""
         self.join_handler = handler
+
+    def set_txack_handler(self, handler: Callable) -> None:
+        self.txack_handler = handler
 
     @retry(
         stop=stop_after_attempt(3),
@@ -92,9 +93,9 @@ class MqttTransport:
     def on_connect(self, client, userdata, flags, reason_code, properties):
         logger.info("Connected with result code {reason_code}", reason_code=reason_code)
 
-        # Subscribe inside on_connect to re-subscribe on auto-reconnects
         self.client.subscribe(self.chirpstack_mqtt_endpoint.get_event_up(), qos=1)
         self.client.subscribe(self.chirpstack_mqtt_endpoint.get_event_join(), qos=1)
+        self.client.subscribe(self.chirpstack_mqtt_endpoint.get_event_txack(), qos=1)
 
     def on_message(self, client, userdata, msg):
         logger.debug(
@@ -112,6 +113,10 @@ class MqttTransport:
             logger.info("New join event")
             if self.join_handler:
                 self.join_handler(msg.payload)
+        elif event_type == "txack":
+            logger.debug("New txack event")
+            if self.txack_handler:
+                self.txack_handler(msg.payload)
         else:
             logger.info("Other topics")
 
@@ -121,4 +126,3 @@ class MqttTransport:
 
     def on_disconnect(self, client, userdata, flags, reason_code, properties):
         logger.info("Client has disconnected. reason_code: {reason_code}", reason_code=reason_code)
-        # self.client.disconnected.set_result(reason_code)

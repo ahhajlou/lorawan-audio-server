@@ -13,13 +13,13 @@ class Settings:
     mqtt_broker_port: int
     mqtt_username: str | None
     mqtt_password: str | None
-    flush_interval_ms: int  # default 100
+    txack_timeout_s: float
     chirpstack_app_id: str | None
     log_level: str
 
 
 def load_env_variables() -> Settings:
-    load_dotenv()  # reads .env and populates os.environ
+    load_dotenv()
 
     log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
     if log_level not in VALID_LOG_LEVELS:
@@ -30,7 +30,7 @@ def load_env_variables() -> Settings:
         mqtt_broker_port=int(os.getenv("MQTT_BROKER_PORT", "1883")),
         mqtt_username=os.getenv("MQTT_USERNAME") or None,
         mqtt_password=os.getenv("MQTT_PASSWORD") or None,
-        flush_interval_ms=int(os.getenv("FLUSH_INTERVAL_MS", "100")),
+        txack_timeout_s=float(os.getenv("TXACK_TIMEOUT_S", "5.0")),
         chirpstack_app_id=os.getenv("CHIRPSTACK_APP_ID") or None,
         log_level=log_level,
     )

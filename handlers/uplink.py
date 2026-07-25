@@ -1,34 +1,38 @@
 import base64
-import json
 
 import pydantic
 from loguru import logger
 
 import exceptions
+from dispatch.dispatcher import DispatcherManager
 from protocol import parser
 from routing.forwarder import Forwarder
-from transport import mqtt_client
+from routing.gateway_queue import GatewayDispatchQueue
 from transport.chirpstack_event_types.uplink import UplinkEvent
 
 
 class UplinkHandler:
-    def __init__(self, forwarder: Forwarder, publish_downlink: mqtt_client.PublishDownlinkType):
+    def __init__(
+        self,
+        forwarder: Forwarder,
+        dispatch_queue: GatewayDispatchQueue,
+        dispatcher_manager: DispatcherManager,
+    ):
         self.forwarder = forwarder
-        self.publish_downlink: mqtt_client.PublishDownlinkType = publish_downlink
+        self.dispatch_queue = dispatch_queue
+        self.dispatcher_manager = dispatcher_manager
 
     def handle(self, raw_json: bytes) -> None:
         try:
             event_data = UplinkEvent.model_validate_json(raw_json)
         except pydantic.ValidationError:
             logger.warning("Pydantic parse error {raw_json}", raw_json=raw_json)
-            # raise exceptions.ParseError(f"Pydantic parse error {raw_json}") from e
             return None
 
         try:
             decoded_payload = base64.b64decode(event_data.data)
         except Exception:
             logger.warning("Base64 decode error. Data: {data}", data=event_data.data)
-            # raise exceptions.ParseError(f"Base64 decode error. Data: {event_data.data}") from e
             return None
 
         try:
@@ -42,32 +46,29 @@ class UplinkHandler:
         sender_eui = event_data.device_info.dev_eui
         f_port = event_data.f_port
 
+        gateway_id = self._extract_gateway_id(event_data)
+        if gateway_id is None:
+            logger.warning("No rxInfo in uplink event, dropping")
+            return None
+
         try:
-            result = self.forwarder.on_packet_up(packet, sender_eui, f_port)
+            items = self.forwarder.on_packet_up(
+                packet, sender_eui, gateway_id, f_port
+            )
         except ValueError as e:
             logger.warning("Forwarder ValueError. Error: {error}", error=e)
             return None
 
-        if result:
-            try:
-                b64 = base64.b64encode(result.payload).decode("utf-8")
-            except Exception as e:
-                logger.warning("Base64 encode error. Error: {error}", error=e)
-                return None
+        if not items:
+            return None
 
-            try:
-                envelope = json.dumps(
-                    {
-                        "devEui": result.target_eui,
-                        "confirmed": False,
-                        "fPort": f_port,
-                        "data": b64,
-                    }
-                )
-            except ValueError as e:
-                logger.warning("JSON dumps ValueError. Error: {error}", error=e)
+        queue = self.dispatch_queue.get_or_create(gateway_id)
+        self.dispatcher_manager.ensure_dispatcher(gateway_id)
+        for item in items:
+            queue.enqueue(item)
 
-            self.publish_downlink(
-                result.target_eui,
-                envelope,
-            )
+    def _extract_gateway_id(self, event_data: UplinkEvent) -> str | None:
+        if not event_data.rx_info:
+            return None
+        strongest = max(event_data.rx_info, key=lambda rx: rx.rssi)
+        return strongest.gateway_id

@@ -2,7 +2,11 @@
 
 Application server for LoRaWAN-based walkie-talkie audio transmission.
 Receives audio packets from speaking nodes via ChirpStack MQTT, acknowledges
-them on behalf of the receiver, buffers, and forwards to the listening node(s).
+them on behalf of the receiver, and forwards to the listening node(s).
+
+All downlinks — both ACKs and data — are serialized through a single
+per-gateway dispatch queue, gated on ChirpStack `txack` events, to prevent
+collisions on the gateway's single TX chain.
 
 ## Hardware
 
@@ -15,74 +19,41 @@ them on behalf of the receiver, buffers, and forwards to the listening node(s).
 ## Network Topology
 
 ```
-┌──────────┐     ┌──────────┐     ┌────────────┐     ┌────────────┐
-│  Node A  │────►│  Gateway │────►│ ChirpStack │────►│   This     │
-│ (sender) │     │  WM1302  │     │  (MQTT)    │     │   Server   │
-└──────────┘     └──────────┘     └────────────┘     └────────────┘
-                                        ▲                     │
-┌──────────┐     ┌──────────┐          │          ACK (immediate)
-│  Node B  │◄────│  Gateway │◄─────────┘                     │
-│(receiver)│     │  WM1302  │◄────────── data (deferred) ────┘
-└──────────┘     └──────────┘
+Node A ──uplink──► Gateway (WM1302) ──MQTT──► ChirpStack ──MQTT──► This Server
+Node A ◄──ACK────┐
+Node B ◄──data───┤── Gateway ◄── ChirpStack ◄── This Server
+                 │
+                 └── both downlinks pass through ONE dispatch queue,
+                     serialized against the gateway's TX chain
 ```
 
 - Single gateway, multiple nodes
 - Uplink: 8 channels (multi-channel receiver)
-- Downlink: 1 channel (single radio, serialized by ChirpStack)
+- Downlink: 1 channel (single radio, one packet on air at a time)
 - LoRaWAN Class C (always-on receiver for low latency)
 - Frequency plan: EU868 (duty cycle disabled)
 
 ## How It Works
 
-1. **Node A** transmits audio packets (sound split into multiple sequential packets)
+1. **Node A** transmits audio packets
 2. **Gateway** receives and forwards to **ChirpStack** via MQTT
-3. **This server** receives the MQTT message, parses the LoRa packet, and:
-   - Sends an ACK back to Node A immediately (on behalf of Node B, to reduce airtime)
-   - Buffers the packet for Node B
-4. **Flush thread** periodically drains the buffer and publishes data downlinks to ChirpStack
-5. **ChirpStack** schedules and transmits the downlink to Node B via the gateway
-6. **Node B** receives the audio packet (radio always open in Class C)
+3. **This server** parses the uplink, then enqueues two items into a
+   per-gateway FIFO queue: ACK (for Node A) then data (for Node B)
+4. **Dispatcher** (one per gateway) pops items one at a time, publishes
+   each to ChirpStack, and waits for the `txack` confirmation before
+   sending the next
+5. **ChirpStack** transmits the downlink to the target node via the gateway
 
-Two separate downlinks per uplink:
-- **ACK → sender** (immediate, same handler call)
-- **Data → receiver** (deferred, via flush thread from buffer)
+## Configuration
 
-## Project Structure
-
-```
-lorawan-audio-server/
-├── main.py                     Entry point, wiring, startup
-├── config.py                   Settings from .env
-├── exceptions.py               Custom exception hierarchy
-│
-├── transport/                  MQTT layer (wraps paho-mqtt)
-│   ├── mqtt_client.py
-│   ├── chirpstack_endpoints.py Topic construction
-│   └── chirpstack_event_types/ Pydantic models for ChirpStack JSON
-│       └── uplink.py
-│
-├── protocol/                   Packet format — pure functions, zero deps
-│   ├── models.py               Packet, Address, MsgType
-│   ├── parser.py               bytes → Packet
-│   ├── serializer.py           Packet → bytes, build_ack, build_downlink
-│   └── crc.py                  CRC8 calculation and verification
-│
-├── registry/                   Device state
-│   └── device_registry.py      Address → DevEUI mapping
-│
-├── routing/                    Forwarding logic
-│   ├── models.py               PublishRequest (return type from forwarder)
-│   ├── forwarder.py            Routing decisions (register, lookup, ACK, enqueue)
-│   └── stream_buffer.py        Thread-safe per-receiver packet buffers
-│
-├── handlers/                   Event handlers (bridge between transport and routing)
-│   ├── uplink.py               Uplink message handler
-│   └── join.py                 Join event handler
-│
-└── scheduler.py                Flush thread (periodic buffer drain)
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
+| Variable | Default | Description |
+|---|---|---|
+| `MQTT_BROKER_HOST` | `localhost` | ChirpStack MQTT broker address |
+| `MQTT_BROKER_PORT` | `1883` | ChirpStack MQTT broker port |
+| `MQTT_USERNAME` | (empty) | MQTT auth username |
+| `MQTT_PASSWORD` | (empty) | MQTT auth password |
+| `TXACK_TIMEOUT_S` | `5.0` | Max seconds to wait for txack before advancing |
+| `CHIRPSTACK_APP_ID` | — | ChirpStack application UUID |
 
 ## Requirements
 
@@ -93,25 +64,13 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
 ## Setup
 
 ```bash
-# Clone and enter the project
 git clone <repo-url>
 cd lorawan-audio-server
-
-# Install dependencies
 uv sync
-
-# Copy and edit environment config
 cp .env.example .env
 ```
 
-Edit `.env`:
-
-```env
-MQTT_BROKER_HOST=192.168.1.100
-MQTT_BROKER_PORT=1883
-MQTT_USERNAME=
-MQTT_PASSWORD=
-```
+Edit `.env` with your MQTT broker address, ChirpStack app ID, and log level.
 
 ## Running
 
@@ -119,46 +78,11 @@ MQTT_PASSWORD=
 uv run python main.py
 ```
 
-## Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `MQTT_BROKER_HOST` | `localhost` | ChirpStack MQTT broker address |
-| `MQTT_BROKER_PORT` | `1883` | ChirpStack MQTT broker port |
-| `MQTT_USERNAME` | (empty) | MQTT auth username |
-| `MQTT_PASSWORD` | (empty) | MQTT auth password |
-| `FLUSH_INTERVAL_MS` | `100` | Flush thread interval in milliseconds |
-| `CHIRPSTACK_APP_ID` | — | ChirpStack application UUID |
-
-## Architecture
-
-- **2 threads**: MQTT I/O thread (paho) + flush thread
-- **No async**: unnecessary for this workload
-- **Thread safety**: `threading.Lock` per buffer + one lock for the buffer dict
-- **Pure protocol layer**: parser, serializer, CRC are stateless functions
-- **Dependency injection**: `main.py` wires all components, no hidden globals
-- **Two downlink paths**: ACK (immediate via handler) + data (deferred via flush thread)
-- **Clean dependency rule**: routing never imports transport; handler is the bridge
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full thread model, sequence diagrams,
-dependency rules, and design patterns.
-
-## Python formatter
+## Tests
 
 ```bash
-uv run ruff format .
-```
-
-## Run tests
-
-All tests
-
-```bash
+uv run ruff check
 uv run pytest
 ```
 
-Specific Files
-
-```bash
-uv run pytest tests/test_protocol/test_crc.py -v
-```
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
