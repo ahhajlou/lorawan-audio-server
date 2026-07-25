@@ -7,13 +7,14 @@ from loguru import logger
 import exceptions
 from protocol import parser
 from routing.forwarder import Forwarder
+from transport import mqtt_client
 from transport.chirpstack_event_types.uplink import UplinkEvent
 
 
 class UplinkHandler:
-    def __init__(self, forwarder: Forwarder, publish_downlink):
+    def __init__(self, forwarder: Forwarder, publish_downlink: mqtt_client.PublishDownlinkType):
         self.forwarder = forwarder
-        self.publish_downlink = publish_downlink
+        self.publish_downlink: mqtt_client.PublishDownlinkType = publish_downlink
 
     def handle(self, raw_json: bytes) -> None:
         try:

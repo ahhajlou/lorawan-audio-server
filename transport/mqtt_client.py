@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Protocol
 
 import paho.mqtt.client as mqtt
 from loguru import logger
@@ -18,6 +19,11 @@ _PAHO_TO_LOGURU = {
 }
 
 
+class PublishDownlinkType(Protocol):
+    # self, dev_eui: str, payload: PayloadType, qos=1
+    def __call__(self, dev_eui: str, payload: PayloadType, qos: int = 1) -> None: ...
+
+
 class MqttTransport:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -29,8 +35,8 @@ class MqttTransport:
 
         self.chirpstack_mqtt_endpoint = ChirpStackMqttEndpoint()
 
-        self.uplink_handler: Callable | None = None
-        self.join_handler: Callable | None = None
+        self.uplink_handler: Callable[[bytes], None] | None = None
+        self.join_handler: Callable[[bytes], None] | None = None
 
         if self.settings.chirpstack_app_id is None or self.settings.chirpstack_app_id == "":
             raise ValueError("CHIRPSTACK_APP_ID is None or empty")
