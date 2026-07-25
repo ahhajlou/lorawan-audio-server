@@ -4,8 +4,16 @@ import exceptions
 from protocol.crc import verify_crc8
 from protocol.models import Address, MsgType, Packet
 
+"""
+Chirpstack error
+level:"ERROR"
+code:"DOWNLINK_PAYLOAD_SIZE"
+description:"Device queue-item discarded because it exceeds the max. payload size"
+max_payload_size:"51"
+item_size:"52"
+"""
 ESP32_LORA_STRUCT_CDEF = """
-#define LORA_PAYLOAD_SIZE_PLUS_CRC 44
+#define LORA_PAYLOAD_SIZE_PLUS_CRC 43
 
 typedef struct {
     uint8_t  type; // lora_message_type_t
