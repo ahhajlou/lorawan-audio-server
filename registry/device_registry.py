@@ -22,7 +22,7 @@ class DeviceRow(Base):
 class DeviceRegistry:
     def __init__(self, db_url: str = "sqlite:///data/database.sql"):
         db_path = db_url.replace("sqlite:///", "")
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)  # TODO: think about `parents=True` is it required and safe? # fmt: skip
 
         self._engine = create_engine(db_url)
         Base.metadata.create_all(self._engine)
