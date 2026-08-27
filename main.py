@@ -13,6 +13,7 @@ from transport.mqtt_client import MqttTransport
 logger.remove()
 
 
+@logger.catch
 def main():
     settings = load_env_variables()
 
